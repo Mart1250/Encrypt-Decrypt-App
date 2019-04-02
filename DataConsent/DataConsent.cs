@@ -9,6 +9,9 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Security.Cryptography;
 using System.IO;
+using System.Runtime.InteropServices;
+using NetMQ.Sockets;
+using NetMQ;
 
 namespace DataConsent
 {
@@ -18,6 +21,16 @@ namespace DataConsent
         {
             InitializeComponent();
         }
+
+        [DllImport("KERNEL32.DLL", EntryPoint = "RtlZeroMemory")]
+        public static extern bool ZeroMemory(IntPtr Destination, int Length);
+
+        public static bool listViewLoaded;
+        string safefilename = null;
+        string filename = null;
+        byte[] file = null;
+        byte[] password;
+        byte[] salt;
 
         private void b_verify_Click(object sender, EventArgs e)
         {
@@ -84,9 +97,6 @@ namespace DataConsent
                         MessageBox.Show(f.Message);
                     }
 
-
-
-
                 }
 
 
@@ -125,35 +135,231 @@ namespace DataConsent
 
         private void b_addfile_Click(object sender, EventArgs e)
         {
-            DialogResult result = oFD_addfile.ShowDialog();
-            string filename = null;
-            byte[] file = null;
+            DialogResult result = oFD_loadfile.ShowDialog();
+  
+            string signedDataPath;
+            string passwordDataPath;
+            string saltDataPath;
+            string randomString;
+            byte[] signedData;
+            byte[] encryptedFile;
+            RSAParameters privKey;
+            RSAParameters pubKey;
+
+
+            // Create a new instance of the RSACryptoServiceProvider class 
+            // and automatically create a new key-pair.
+            RSACryptoServiceProvider RSAalg; // = new RSACryptoServiceProvider();
+
+
 
             if (result == DialogResult.OK)
             {
-                filename = oFD_addfile.FileName;
+                safefilename = oFD_loadfile.SafeFileName;
+                filename = oFD_loadfile.FileName;
 
-                try
-                {
-                    file = File.ReadAllBytes(filename);
-                }
-                catch (IOException f)
+                //MessageBox.Show(l_files.Items[0].Text + ":" + safefilename);
+
+                if (!General.containsListView(l_files, safefilename))
                 {
 
-                    return; //Implement logging here.
+                    try
+                    {
+                        file = File.ReadAllBytes(filename);
+                    }
+                    catch (IOException f)
+                    {
+
+                        return; //Implement logging here.
+                    }
+
                 }
+                else
+                {
+
+                    MessageBox.Show("This file already exists.");
+
+                    return;
+                }
+
+            }
+            else
+            {
+                return;
+            }
+
+
+            if (File.Exists("private_key.xml"))
+            {
+
+                RSAalg = Cryptography.importPrivateKey();
+                privKey = RSAalg.ExportParameters(true);
+
+            }
+            else
+            {
+
+                RSAalg = new RSACryptoServiceProvider(512);
+                privKey = RSAalg.ExportParameters(true);
+
+                Cryptography.exportKeyToXmlFile(RSAalg, true);
+                Cryptography.exportKeyToXmlFile(RSAalg, false);
+
             }
 
             try
             {
-                File.WriteAllBytes(filename, file);
+
+                password = Encryption.GenerateRandomSalt();
+
+                randomString = General.RandomString(32);
+
+                //GCHandle gch = GCHandle.Alloc(System.Text.Encoding.UTF8.GetString(password), GCHandleType.Pinned); //Indien errors tijdens decrypten, check of de UTF8 encoding hiervoor zorgt.
+
+                //MessageBox.Show("Password: " + System.Text.Encoding.UTF8.GetString(password));
+
+                //MessageBox.Show("result: " + filename);
+                Encryption.FileEncrypt(filename, randomString, password, salt = Encryption.GenerateRandomSalt());
+
+                //ZeroMemory(gch.AddrOfPinnedObject(), password.Length * 2);
+                //gch.Free();
+
+                //MessageBox.Show("Password: " + System.Text.Encoding.UTF8.GetString(password));
+
+                encryptedFile = File.ReadAllBytes("files/" + randomString + ".aes");
             }
             catch (Exception f)
             {
 
+                MessageBox.Show("Error:" + f.Message);
                 return; //Implement logging here.
             }
+
+
+            if ((signedData = Cryptography.hashAndSignBytes(encryptedFile, privKey)) != null) {
+
+                signedDataPath = "files/signeddata/" + randomString + ".aes.signed";
+                passwordDataPath = "files/passwords/" + randomString + ".aes.pass";
+                saltDataPath = "files/salts/" + randomString + ".salt";
+
+                try
+                {
+
+                    File.WriteAllBytes(signedDataPath, signedData);
+                    File.WriteAllBytes(passwordDataPath, password);
+                    File.WriteAllBytes(saltDataPath, salt);
+
+                }
+                catch (Exception f)
+                {
+
+                    MessageBox.Show("Error:" + f.Message);
+                }
+
+
+                ListViewItem item = new ListViewItem(safefilename, 0);
+                item.SubItems.Add(randomString);
+                l_files.Items.Add(item);
+
+                General.saveListView(l_files);
+            }
+        }
+
+    private void DataConsent_Load(object sender, EventArgs e)
+        {
             
+            b_decrypt.Enabled = false;
+
+            General.loadListView(l_files);
+            l_files.FullRowSelect = true;
+            //l_files.GridLines = true;
+            l_files.Columns.Add("Filename");
+            l_files.Columns.Add("Pseudonym");
+        }
+
+        private void b_savelist_Click(object sender, EventArgs e)
+        {
+
+            General.saveListView(l_files);
+
+        }
+
+        private void b_loadlist_Click(object sender, EventArgs e)
+        {
+
+            General.loadListView(l_files);
+
+        }
+
+        private void b_decrypt_Click(object sender, EventArgs e)
+        {
+
+            string fileDataPath;
+            string passwordDataPath;
+            string saltDataPath;
+
+            b_decrypt.Enabled = false;
+            sFD_savefile.FileName = l_files.SelectedItems[0].SubItems[0].Text;
+            DialogResult result = sFD_savefile.ShowDialog();
+            
+
+            if (result == DialogResult.OK)
+            {
+
+                filename = sFD_savefile.FileName;
+                MessageBox.Show("" + l_files.SelectedItems[0].SubItems[1].Text);
+
+                fileDataPath = "files/" + l_files.SelectedItems[0].SubItems[1].Text + ".aes";
+                passwordDataPath = "files/passwords/" + l_files.SelectedItems[0].SubItems[1].Text + ".aes.pass";
+                saltDataPath = "files/salts/" + l_files.SelectedItems[0].SubItems[1].Text + ".salt";
+
+                password = File.ReadAllBytes(passwordDataPath);
+                salt = File.ReadAllBytes(passwordDataPath);
+                MessageBox.Show(General.ConvertByteToStringWithoutEncoding(password));
+
+                try
+                {
+
+                    Encryption.FileDecrypt(fileDataPath, filename, password, salt);
+
+                }
+
+                catch (Exception f)
+                {
+
+                    MessageBox.Show("Error:" + f.Message);
+
+                }           
+                //password = null;
+                //salt = null;
+            }
+            
+        }
+
+        private void l_files_SelectedIndexChanged(object sender, EventArgs e)
+        {
+
+            if (l_files.SelectedItems.Count > 0)
+            {
+
+                b_decrypt.Enabled = true;
+
+            }else if (l_files.SelectedItems.Count < 1)
+            {
+
+                b_decrypt.Enabled = false;
+
+            }
+
+        }
+
+        public void b_connect_Click(object sender, EventArgs e)
+        {
+
+
+            TCPRequest.test();
+
+            //AsynchronousClient.StartClient();
 
 
         }

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
+using System.Windows.Forms;
 
 namespace DataConsent
 {
@@ -13,11 +14,12 @@ namespace DataConsent
 
         public static byte[] hashAndSignBytes(byte[] dataToSign, RSAParameters key)
         {
+
             try
             {
                 // Create a new instance of RSACryptoServiceProvider using the 
                 // key from RSAParameters.  
-                RSACryptoServiceProvider RSAalg = new RSACryptoServiceProvider();
+                RSACryptoServiceProvider RSAalg = new RSACryptoServiceProvider(512);
 
                 RSAalg.ImportParameters(key);
 
@@ -30,15 +32,17 @@ namespace DataConsent
 
                 return null;
             }
+
         }
 
         public static bool verifySignedHash(byte[] DataToVerify, byte[] signedData, RSAParameters key)
         {
+
             try
             {
                 // Create a new instance of RSACryptoServiceProvider using the 
                 // key from RSAParameters.
-                RSACryptoServiceProvider RSAalg = new RSACryptoServiceProvider();
+                RSACryptoServiceProvider RSAalg = new RSACryptoServiceProvider(512);
 
                 RSAalg.ImportParameters(key);
 
@@ -52,6 +56,7 @@ namespace DataConsent
 
                 return false;
             }
+
         }
 
         public static bool exportKeyToXmlFile(RSACryptoServiceProvider provider, bool exportPrivateKey) //Exports key information to XMLfile.
@@ -82,7 +87,7 @@ namespace DataConsent
         public static RSACryptoServiceProvider importPublicKey()
         {
 
-            RSACryptoServiceProvider provider = new RSACryptoServiceProvider();
+            RSACryptoServiceProvider provider = new RSACryptoServiceProvider(512);
 
             try
             {
@@ -97,6 +102,91 @@ namespace DataConsent
             }
 
             return provider;
+        }
+
+        public static RSACryptoServiceProvider importPrivateKey()
+        {
+
+            RSACryptoServiceProvider provider = new RSACryptoServiceProvider(512);
+
+            try
+            {
+                string xmlString = System.IO.File.ReadAllText("private_key.xml");
+
+                provider.FromXmlString(xmlString);
+            }
+            catch (Exception e)
+            {
+
+                return null;
+            }
+
+            return provider;
+        }
+
+        public static byte[] RSAEncrypt(byte[] DataToEncrypt, RSAParameters RSAKeyInfo, bool DoOAEPPadding)
+        {
+            try
+            {
+
+                byte[] encryptedData;
+                //Create a new instance of RSACryptoServiceProvider.
+                using (RSACryptoServiceProvider RSA = new RSACryptoServiceProvider(512))
+                {
+
+                    //Import the RSA Key information. This only needs
+                    //toinclude the public key information.
+                    RSA.ImportParameters(RSAKeyInfo);
+
+                    //Encrypt the passed byte array and specify OAEP padding.  
+                    //OAEP padding is only available on Microsoft Windows XP or
+                    //later.  
+                    encryptedData = RSA.Encrypt(DataToEncrypt, DoOAEPPadding);
+
+                }
+
+                return encryptedData;
+            }
+            //Catch and display a CryptographicException  
+            //to the console.
+            catch (CryptographicException e)
+            {
+
+                MessageBox.Show("from class: " + e.Message);
+                return null; //implement logging.
+            }
+
+        }
+
+        public static byte[] RSADecrypt(byte[] DataToDecrypt, RSAParameters RSAKeyInfo, bool DoOAEPPadding)
+        {
+            try
+            {
+
+                byte[] decryptedData;
+                //Create a new instance of RSACryptoServiceProvider.
+                using (RSACryptoServiceProvider RSA = new RSACryptoServiceProvider(512))
+                {
+                    //Import the RSA Key information. This needs
+                    //to include the private key information.
+                    RSA.ImportParameters(RSAKeyInfo);
+
+                    //Decrypt the passed byte array and specify OAEP padding.  
+                    //OAEP padding is only available on Microsoft Windows XP or
+                    //later.  
+                    decryptedData = RSA.Decrypt(DataToDecrypt, DoOAEPPadding);
+                }
+
+                return decryptedData;
+            }
+            //Catch and display a CryptographicException  
+            //to the console.
+            catch (CryptographicException e)
+            {
+
+                return null; //implement logging.
+            }
+
         }
 
     }
